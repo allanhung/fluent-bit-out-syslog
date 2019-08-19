@@ -69,6 +69,10 @@ type Out struct {
 	dialTimeout  time.Duration
 	bufferSize   int
 	writeTimeout time.Duration
+	priority     int
+	taglabel     string
+	logformat    string
+	k8smeta      bool
 	sanitizeHost bool
 }
 
@@ -105,11 +109,15 @@ func WithSanitizeHost(s bool) OutOption {
 }
 
 // NewOut returns a new Out which handles both tcp and tls connections.
-func NewOut(sinks, clusterSinks []*Sink, opts ...OutOption) *Out {
+func NewOut(sinks, clusterSinks []*Sink, priority int, taglabel string, logformat string, k8smeta bool, opts ...OutOption) *Out {
 	out := &Out{
 		dialTimeout:  5 * time.Second,
 		bufferSize:   10000,
 		writeTimeout: time.Second,
+		priority:     priority,
+		taglabel:     taglabel,
+		logformat:    logformat,
+		k8smeta:      k8smeta,
 	}
 
 	for _, o := range opts {
@@ -155,21 +163,39 @@ func (o *Out) Write(
 	ts time.Time,
 	tag string,
 ) {
-	msg, namespace := convert(record, ts, tag, o.sanitizeHost)
+	switch strings.ToUpper(o.logformat) {
+	case "RFC5425":
+		msg, namespace := convert(record, ts, tag, o.priority, o.taglabel, o.k8smeta, o.sanitizeHost)
+		for _, cs := range o.clusterSinks {
+			cs.queueMessage(msg)
+		}
 
-	for _, cs := range o.clusterSinks {
-		cs.queueMessage(msg)
+		namespaceSinks, ok := o.sinks[namespace]
+		if !ok {
+			// TODO: track ignored messages
+			return
+		}
+
+		for _, s := range namespaceSinks {
+			s.queueMessage(msg)
+		}
+	case "RFC3164":
+		msg, namespace := convert3164(record, ts, tag, o.priority, o.taglabel, o.k8smeta, o.sanitizeHost)
+		for _, cs := range o.clusterSinks {
+			cs.queueMessage(msg)
+		}
+
+		namespaceSinks, ok := o.sinks[namespace]
+		if !ok {
+			// TODO: track ignored messages
+			return
+		}
+
+		for _, s := range namespaceSinks {
+			s.queueMessage(msg)
+		}
 	}
 
-	namespaceSinks, ok := o.sinks[namespace]
-	if !ok {
-		// TODO: track ignored messages
-		return
-	}
-
-	for _, s := range namespaceSinks {
-		s.queueMessage(msg)
-	}
 }
 
 func (o *Out) SinkState() []SinkState {
@@ -321,6 +347,9 @@ func convert(
 	record map[interface{}]interface{},
 	ts time.Time,
 	tag string,
+	priority int,
+	taglabel string,
+	k8smeta bool,
 	sanitizeHost bool,
 ) (*rfc5424.Message, string) {
 	var (
@@ -363,7 +392,8 @@ func convert(
 		podName       string
 		namespaceName string
 		containerName string
-		labelParams   []rfc5424.SDParam
+		//		logtag        string
+		labelParams []rfc5424.SDParam
 	)
 	for k, v := range k8sMap {
 		key, ok := k.(string)
@@ -401,17 +431,20 @@ func convert(
 			if !ok2 {
 				continue
 			}
-			labelParams = processLabels(v2)
+			labelParams, _ = processLabels(v2, taglabel)
 		}
 	}
 
-	k8sStructuredData := buildStructuredData(
-		labelParams,
-		namespaceName,
-		podName,
-		containerName,
-		vmID,
-	)
+	var k8sStructuredData rfc5424.StructuredData
+	if k8smeta {
+		k8sStructuredData = buildStructuredData(
+			labelParams,
+			namespaceName,
+			podName,
+			containerName,
+			vmID,
+		)
+	}
 
 	if len(k8sMap) != 0 {
 		prefix := logPrefix
@@ -444,7 +477,7 @@ func convert(
 	}
 
 	return &rfc5424.Message{
-		Priority:  rfc5424.Info + rfc5424.User,
+		Priority:  rfc5424.Priority(priority),
 		Timestamp: ts,
 		Hostname:  host,
 		AppName:   appName,
@@ -455,9 +488,124 @@ func convert(
 	}, namespaceName
 }
 
-func processLabels(labels map[interface{}]interface{}) []rfc5424.SDParam {
+func convert3164(
+	record map[interface{}]interface{},
+	ts time.Time,
+	tag string,
+	priority int,
+	taglabel string,
+	k8smeta bool,
+	sanitizeHost bool,
+) (*bytes.Buffer, string) {
+	var (
+		logmsg []byte
+		k8sMap map[interface{}]interface{}
+		host   string
+	)
+
+	for k, v := range record {
+		key, ok := k.(string)
+		if !ok {
+			continue
+		}
+
+		switch key {
+		case "log":
+			v2, ok2 := v.([]byte)
+			if !ok2 {
+				continue
+			}
+			logmsg = v2
+		case "kubernetes":
+			v2, ok2 := v.(map[interface{}]interface{})
+			if !ok2 {
+				continue
+			}
+			k8sMap = v2
+		case "cluster_name":
+			v2, ok2 := v.([]byte)
+			if !ok2 {
+				continue
+			}
+			host = string(v2)
+		}
+	}
+
+	var (
+		vmID string
+		//		appName       string
+		podName       string
+		namespaceName string
+		//		containerName string
+		logtag string
+	)
+	for k, v := range k8sMap {
+		key, ok := k.(string)
+		if !ok {
+			continue
+		}
+
+		switch key {
+		case "host":
+			v2, ok2 := v.([]byte)
+			if !ok2 {
+				continue
+			}
+			vmID = string(v2)
+			//		case "container_name":
+			//			v2, ok2 := v.([]byte)
+			//			if !ok2 {
+			//				continue
+			//			}
+			//			containerName = string(v2)
+		case "pod_name":
+			v2, ok2 := v.([]byte)
+			if !ok2 {
+				continue
+			}
+			podName = string(v2)
+		case "namespace_name":
+			v2, ok2 := v.([]byte)
+			if !ok2 {
+				continue
+			}
+			namespaceName = string(v2)
+		case "labels":
+			v2, ok2 := v.(map[interface{}]interface{})
+			if !ok2 {
+				continue
+			}
+			for k, v := range v2 {
+				if k.(string) == taglabel {
+					logtag = string(v.([]byte))
+				}
+			}
+		}
+	}
+
+	if !bytes.HasSuffix(logmsg, []byte("\n")) {
+		logmsg = append(logmsg, byte('\n'))
+	}
+
+	if host == "" {
+		host = vmID
+	}
+	if sanitizeHost {
+		host = sanitizeHostname(host)
+	}
+	return bytes.NewBufferString(fmt.Sprintf("<%d>%s %s %s[%d]: %s",
+		priority,
+		ts.Format(time.Stamp),
+		podName, logtag, 1, logmsg)), namespaceName
+}
+
+func processLabels(labels map[interface{}]interface{}, taglabel string) ([]rfc5424.SDParam, string) {
 	params := make([]rfc5424.SDParam, 0, len(labels))
+	tag := ""
 	for k, v := range labels {
+		if k.(string) == taglabel {
+			tag = string(v.([]byte))
+		}
 		ks, ok := k.(string)
 		if !ok {
 			continue
@@ -472,7 +620,7 @@ func processLabels(labels map[interface{}]interface{}) []rfc5424.SDParam {
 			Value: string(vb),
 		})
 	}
-	return params
+	return params, tag
 }
 
 func buildStructuredData(labels []rfc5424.SDParam, ns, pn, cn, vmID string) rfc5424.StructuredData {

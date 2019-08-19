@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 
-	"github.com/pivotal-cf/fluent-bit-out-syslog/pkg/syslog"
+	"github.com/allanhung/fluent-bit-out-syslog/pkg/syslog"
 )
 
 var _ = Describe("Out", func() {

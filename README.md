@@ -46,12 +46,16 @@ is enabled by default as of the most recent release.
     K8S-Logging.Parser  On
 
 [OUTPUT]
-    Name          syslog
-    InstanceName  insecure-namespace-sink
-    Match         *
-    Addr          logs.papertrailapp.com:18271
-    Namespace     myns
-    TLSConfig     {"insecure_skip_verify":true}
+    Name           syslog
+    InstanceName   insecure-namespace-sink
+    Match          *
+    Addr           logs.papertrailapp.com:18271
+    Namespace      myns
+    Severity       Info
+    Facility       Local5
+    LogFormat      RFC3164
+    KubernetesMeta False
+    TLSConfig      {"insecure_skip_verify":true}
 
 [OUTPUT]
     Name          syslog
@@ -59,6 +63,7 @@ is enabled by default as of the most recent release.
     Match         *
     Addr          logs.papertrailapp.com:18271
     Cluster       true
+    LogFormat     RFC5424
     TLSConfig     {"root_ca":"/path/to/root/ca"}
     SanitizeHost  false
 ```
