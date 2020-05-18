@@ -26,13 +26,13 @@ const (
 	Lpr
 	News
 	Uucp
-  	Cron
+	Cron
 	Authpriv
-  	Ftp
-  	Ntp
-  	LogAudit
-  	LogAlert
-  	Clock
+	Ftp
+	Ntp
+	LogAudit
+	LogAlert
+	Clock
 	Local0
 	Local1
 	Local2

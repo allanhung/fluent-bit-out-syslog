@@ -70,6 +70,7 @@ type Out struct {
 	bufferSize   int
 	writeTimeout time.Duration
 	priority     int
+	clusterid    string
 	taglabel     string
 	logformat    string
 	k8smeta      bool
@@ -109,12 +110,13 @@ func WithSanitizeHost(s bool) OutOption {
 }
 
 // NewOut returns a new Out which handles both tcp and tls connections.
-func NewOut(sinks, clusterSinks []*Sink, priority int, taglabel string, logformat string, k8smeta bool, opts ...OutOption) *Out {
+func NewOut(sinks, clusterSinks []*Sink, priority int, clusterid string, taglabel string, logformat string, k8smeta bool, opts ...OutOption) *Out {
 	out := &Out{
 		dialTimeout:  5 * time.Second,
 		bufferSize:   10000,
 		writeTimeout: time.Second,
 		priority:     priority,
+		clusterid:    clusterid,
 		taglabel:     taglabel,
 		logformat:    logformat,
 		k8smeta:      k8smeta,
@@ -165,7 +167,7 @@ func (o *Out) Write(
 ) {
 	switch strings.ToUpper(o.logformat) {
 	case "RFC5425":
-		msg, namespace := convert(record, ts, tag, o.priority, o.taglabel, o.k8smeta, o.sanitizeHost)
+		msg, namespace := convert(record, ts, tag, o.priority, o.clusterid, o.taglabel, o.k8smeta, o.sanitizeHost)
 		for _, cs := range o.clusterSinks {
 			cs.queueMessage(msg)
 		}
@@ -180,7 +182,7 @@ func (o *Out) Write(
 			s.queueMessage(msg)
 		}
 	case "RFC3164":
-		msg, namespace := convert3164(record, ts, tag, o.priority, o.taglabel, o.k8smeta, o.sanitizeHost)
+		msg, namespace := convert3164(record, ts, tag, o.priority, o.clusterid, o.taglabel, o.k8smeta, o.sanitizeHost)
 		for _, cs := range o.clusterSinks {
 			cs.queueMessage(msg)
 		}
@@ -348,6 +350,7 @@ func convert(
 	ts time.Time,
 	tag string,
 	priority int,
+	clusterid string,
 	taglabel string,
 	k8smeta bool,
 	sanitizeHost bool,
@@ -493,6 +496,7 @@ func convert3164(
 	ts time.Time,
 	tag string,
 	priority int,
+	clusterid string,
 	taglabel string,
 	k8smeta bool,
 	sanitizeHost bool,
@@ -536,8 +540,8 @@ func convert3164(
 		//		appName       string
 		podName       string
 		namespaceName string
-		//		containerName string
-		logtag string
+		containerName string
+		logtag        string
 	)
 	for k, v := range k8sMap {
 		key, ok := k.(string)
@@ -552,12 +556,12 @@ func convert3164(
 				continue
 			}
 			vmID = string(v2)
-			//		case "container_name":
-			//			v2, ok2 := v.([]byte)
-			//			if !ok2 {
-			//				continue
-			//			}
-			//			containerName = string(v2)
+		case "container_name":
+			v2, ok2 := v.([]byte)
+			if !ok2 {
+				continue
+			}
+			containerName = string(v2)
 		case "pod_name":
 			v2, ok2 := v.([]byte)
 			if !ok2 {
@@ -583,6 +587,10 @@ func convert3164(
 		}
 	}
 
+	if taglabel == "CONTAINER_NAME" {
+		logtag = containerName
+	}
+
 	if !bytes.HasSuffix(logmsg, []byte("\n")) {
 		logmsg = append(logmsg, byte('\n'))
 	}
@@ -593,10 +601,15 @@ func convert3164(
 	if sanitizeHost {
 		host = sanitizeHostname(host)
 	}
+
 	return bytes.NewBufferString(fmt.Sprintf("<%d>%s %s %s[%d]: %s",
-		priority,
-		ts.Format(time.Stamp),
-		podName, logtag, 1, logmsg)), namespaceName
+			priority,
+			ts.Format(time.Stamp),
+			fmt.Sprintf("%s_%s", clusterid, podName),
+			logtag,
+			1,
+			logmsg)),
+		namespaceName
 }
 
 func processLabels(labels map[interface{}]interface{}, taglabel string) ([]rfc5424.SDParam, string) {

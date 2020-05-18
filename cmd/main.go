@@ -30,6 +30,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	name := output.FLBPluginConfigKey(plugin, "instancename")
 	namespace := output.FLBPluginConfigKey(plugin, "namespace")
 	cluster := output.FLBPluginConfigKey(plugin, "cluster")
+	clusterid := output.FLBPluginConfigKey(plugin, "clusterid")
 	tls := output.FLBPluginConfigKey(plugin, "tlsconfig")
 	severityStr := output.FLBPluginConfigKey(plugin, "severity")
 	facilityStr := output.FLBPluginConfigKey(plugin, "facility")
@@ -72,8 +73,12 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		sinks = append(sinks, sink)
 	}
 
+	if clusterid == "" {
+		clusterid = "kubernetes"
+	}
+
 	if taglabel == "" {
-		taglabel = "app.kubernetes.io/name"
+		taglabel = "CONTAINER_NAME"
 	}
 
 	if logformat == "" {
@@ -109,7 +114,8 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	out := syslog.NewOut(
 		sinks,
 		clusterSinks,
-    priority,
+		priority,
+		clusterid,
 		taglabel,
 		logformat,
 		k8smeta,
@@ -234,23 +240,23 @@ func decodeFacility(severityString, facilityString string) rfc5424.Priority {
 		log.Printf("[out_syslog] Facility %s not found. Use default facility rfc5424.User", strings.ToUpper(facilityString))
 		faciliryNum = rfc5424.User
 	}
-  switch strings.ToUpper(severityString) {
-  case "EMERGENCY":
-    return rfc5424.Emergency
-  case "ALERT":
-    return rfc5424.Alert
-  case "CRIT":
-    return rfc5424.Crit
-  case "ERROR":
-    return rfc5424.Error
-  case "WARNING":
-    return rfc5424.Warning
-  case "NOTICE":
-    return rfc5424.Notice
-  case "INFO":
-    return rfc5424.Info
-  case "DEBUG":
-    return rfc5424.Debug
+	switch strings.ToUpper(severityString) {
+	case "EMERGENCY":
+		return rfc5424.Emergency
+	case "ALERT":
+		return rfc5424.Alert
+	case "CRIT":
+		return rfc5424.Crit
+	case "ERROR":
+		return rfc5424.Error
+	case "WARNING":
+		return rfc5424.Warning
+	case "NOTICE":
+		return rfc5424.Notice
+	case "INFO":
+		return rfc5424.Info
+	case "DEBUG":
+		return rfc5424.Debug
 	default:
 		log.Printf("[out_syslog] Severity %s not found. Use default severity rfc5424.Info", strings.ToUpper(severityString))
 		severityNum = rfc5424.Info
@@ -308,26 +314,26 @@ func decodeFacility3164(severityString, facilityString string) syslog.Priority {
 		faciliryNum = syslog.User
 	}
 
-  switch strings.ToUpper(severityString) {
-  case "EMERGENCY":
-    return syslog.Emergency
-  case "ALERT":
-    return syslog.Alert
-  case "CRIT":
-    return syslog.Crit
-  case "ERROR":
-    return syslog.Error
-  case "WARNING":
-    return syslog.Warning
-  case "NOTICE":
-    return syslog.Notice
-  case "INFO":
-    return syslog.Info
-  case "DEBUG":
-    return syslog.Debug
+	switch strings.ToUpper(severityString) {
+	case "EMERGENCY":
+		return syslog.Emergency
+	case "ALERT":
+		return syslog.Alert
+	case "CRIT":
+		return syslog.Crit
+	case "ERROR":
+		return syslog.Error
+	case "WARNING":
+		return syslog.Warning
+	case "NOTICE":
+		return syslog.Notice
+	case "INFO":
+		return syslog.Info
+	case "DEBUG":
+		return syslog.Debug
 	default:
 		log.Printf("[out_syslog] Severity %s not found. Use default severity rfc3164.Info", strings.ToUpper(severityString))
 		severityNum = syslog.Info
-  }
+	}
 	return severityNum + faciliryNum
 }

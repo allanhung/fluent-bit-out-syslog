@@ -53,7 +53,9 @@ is enabled by default as of the most recent release.
     Namespace      myns
     Severity       Info
     Facility       Local5
+    ClusterID      mycluster
     LogFormat      RFC3164
+    TagLabel       CONTAINER_NAME
     KubernetesMeta False
     TLSConfig      {"insecure_skip_verify":true}
 
