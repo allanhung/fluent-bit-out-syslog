@@ -588,7 +588,14 @@ func convert3164(
 	}
 
 	if taglabel == "CONTAINER_NAME" {
-		logtag = containerName
+		if containerName == "" {
+			logtag = podName
+		} else {
+			logtag = containerName
+		}
+	}
+	if strings.HasPrefix(podName, "fluent-bit") {
+		log.Printf("debug, logtag: %s, taglabel: %s, podName: %s, containerName: %s, length: %d", logtag, taglabel, podName, containerName, len(containerName))
 	}
 
 	if !bytes.HasSuffix(logmsg, []byte("\n")) {
